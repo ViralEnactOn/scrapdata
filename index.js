@@ -1,11 +1,4 @@
-const express = require("express");
 const knex = require("knex");
-const { ReasonPhrases, StatusCodes } = require("http-status-codes");
-const app = express();
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
 const knexConfig = {
   client: "mysql2",
   connection: {
@@ -17,25 +10,37 @@ const knexConfig = {
 };
 const db = knex(knexConfig);
 
-let limit = 10;
-let newData = [];
-let newRecords = [];
-app.get("/", async (req, res) => {
+const fetchData = async (limit, skip) => {
   try {
-    for (let skip = 0; skip <= 150; skip += 10) {
-      await fetch(`https://dummyjson.com/todos?limit=${limit}&skip=${skip}`)
-        .then(async (response) => {
-          let data = await response.json();
-          newData.push(data.todos);
-        })
-        .catch((error) => {
-          res.send({
-            status: StatusCodes.INTERNAL_SERVER_ERROR,
-            message: ReasonPhrases.INTERNAL_SERVER_ERROR,
-            data: error,
-          });
-        });
+    const response = await fetch(
+      `https://dummyjson.com/todos?limit=${limit}&skip=${skip}`
+    );
+    const data = await response.json();
+    return data.todos;
+  } catch (error) {
+    console.log({ error });
+    return [];
+  }
+};
+
+const insertData = async () => {
+  try {
+    let limit = 10;
+    let skip = 0;
+    let newData = [];
+    let newRecords = [];
+
+    while (true) {
+      const data = await fetchData(limit, skip);
+
+      if (data.length === 0) {
+        break;
+      }
+
+      newData.push(data);
+      skip += limit;
     }
+
     newRecords = newData.flat();
 
     const insertPromises = newRecords.map(async (item, index) => {
@@ -47,30 +52,13 @@ app.get("/", async (req, res) => {
       });
     });
 
-    Promise.all(insertPromises)
-      .then(async (response) => {
-        await db.from("todolist").then((data) => {
-          res.send({
-            status: StatusCodes.OK,
-            message: ReasonPhrases.OK,
-            data: data,
-          });
-        });
-      })
-      .catch((error) => {
-        console.log("API response error", error);
-        res.send({
-          status: StatusCodes.INTERNAL_SERVER_ERROR,
-          message: ReasonPhrases.INTERNAL_SERVER_ERROR,
-          data: error,
-        });
-      });
+    await Promise.all(insertPromises);
+
+    const insertedData = await db.from("todolist");
+    console.log({ insertedData });
   } catch (error) {
     console.log("Catch error", error);
-    res.send({
-      status: StatusCodes.INTERNAL_SERVER_ERROR,
-      message: ReasonPhrases.INTERNAL_SERVER_ERROR,
-      data: [],
-    });
   }
-});
+};
+
+insertData();
